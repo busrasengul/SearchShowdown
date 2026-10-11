@@ -1,0 +1,19 @@
+﻿<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Azure.Search.Documents" Version="11.7.0" />
+    <PackageVersion Include="Bogus" Version="35.6.5" />
+    <PackageVersion Include="Clean" Version="7.0.8" />
+    <PackageVersion Include="Kjac.SearchProvider.Algolia" Version="17.0.0-rc.1" />
+    <PackageVersion Include="Umbraco.Cms" Version="17.7.1" />
+    <PackageVersion Include="Umbraco.Cms.DevelopmentMode.Backoffice" Version="17.7.1" />
+    <PackageVersion Include="Microsoft.ICU.ICU4C.Runtime" Version="72.1.0.3" />
+    <PackageVersion Include="Umbraco.Cms.Search.BackOffice" Version="17.2.0" />
+    <PackageVersion Include="Umbraco.Cms.Search.Core" Version="17.2.0" />
+    <PackageVersion Include="Umbraco.Cms.Search.DeliveryApi" Version="17.2.0" />
+    <PackageVersion Include="Umbraco.Cms.Search.Provider.Examine" Version="17.2.0" />
+  </ItemGroup>
+</Project>

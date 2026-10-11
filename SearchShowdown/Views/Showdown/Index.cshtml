@@ -1,0 +1,334 @@
+@using System.Globalization
+@using SearchShowdown.Controllers
+@using SearchShowdown.Search
+@model ShowdownPageViewModel
+@{
+    Layout = null;
+    ShowdownSearchRequest request = Model.Request;
+    ShowdownSearchResponse result = Model.Result;
+    var pageSize = Math.Clamp(request.PageSize, 1, 100);
+    var currentPage = Math.Max(1, request.Page);
+    var totalPages = Math.Max(1, (int)Math.Ceiling(result.Total / (double)pageSize));
+    var gbp = CultureInfo.GetCultureInfo("en-GB");
+
+    string PageUrl(int page)
+    {
+        IEnumerable<string> pairs = Context.Request.Query
+            .Where(pair => pair.Key != "page")
+            .SelectMany(pair => pair.Value.Select(value => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(value ?? string.Empty)}"))
+            .Append($"page={page}");
+        return "?" + string.Join("&", pairs);
+    }
+
+    bool IsSelected(string field, string key) => request.SelectedFor(field).Contains(key, StringComparer.OrdinalIgnoreCase);
+
+    string ProviderLabel(SearchProviderKind provider) => provider switch
+    {
+        SearchProviderKind.Azure => "Azure AI Search",
+        _ => provider.ToString(),
+    };
+
+    string Stock(int? level) => level switch
+    {
+        null => string.Empty,
+        0 => "Out of stock",
+        <= 20 => $"Low stock ({level})",
+        _ => $"In stock ({level})",
+    };
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Search Showdown</title>
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --surface: #ffffff;
+            --text: #1b264f;
+            --muted: #5b6480;
+            --border: #e1e4ee;
+            --accent: #3544b1;
+            --accent-soft: #eceefb;
+            --examine: #256abf;
+            --algolia: #c2501f;
+            --azure: #0f7a55;
+            --examine-mark: #2a78d6;
+            --algolia-mark: #eb6834;
+            --azure-mark: #1baf7a;
+            --featured: #b54708;
+            --danger: #b42318;
+        }
+        @@media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #11131c;
+                --surface: #1a1d29;
+                --text: #e8eaf4;
+                --muted: #a0a6bf;
+                --border: #2c3044;
+                --accent: #8c96ff;
+                --accent-soft: #252a45;
+                --featured: #fdb022;
+                --danger: #ff8a80;
+                --examine-mark: #3987e5;
+                --algolia-mark: #d95926;
+                --azure-mark: #199e70;
+            }
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+        .wrap { max-width: 1240px; margin: 0 auto; padding: 24px 16px 64px; }
+        header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 8px; margin-bottom: 16px; }
+        header h1 { margin: 0; font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.02em; }
+        header p { margin: 4px 0 0; color: var(--muted); }
+        .usage { font-size: 0.85rem; color: var(--muted); }
+        .searchbar { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+        .searchbar input[type=search] { font-size: 1.1rem; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); width: 100%; }
+        button { font: inherit; padding: 10px 18px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+        .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin: 14px 0 18px; }
+        .providers { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+        .providers label { padding: 8px 14px; cursor: pointer; border-right: 1px solid var(--border); font-weight: 500; }
+        .providers label:last-child { border-right: 0; }
+        .providers input { position: absolute; opacity: 0; pointer-events: none; }
+        .providers label.active { background: var(--accent); color: #fff; }
+        .providers label.disabled { color: var(--muted); cursor: not-allowed; opacity: 0.6; }
+        select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+        .toggle { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+        .stats { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 18px; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 0.85rem; color: #fff; }
+        .badge.Examine { background: var(--examine); }
+        .badge.Algolia { background: var(--algolia); }
+        .badge.Azure { background: var(--azure); }
+        .ms { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.1rem; }
+        .error { color: var(--danger); }
+        .table-wrap { overflow-x: auto; margin-bottom: 18px; }
+        .compare { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); }
+        .compare th, .compare td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+        .compare tr:last-child td { border-bottom: 0; }
+        .bar { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+        .bar.Examine { background: var(--examine-mark); }
+        .bar.Algolia { background: var(--algolia-mark); }
+        .bar.Azure { background: var(--azure-mark); }
+        .layout { display: grid; grid-template-columns: 250px 1fr; gap: 24px; }
+        aside details { border-bottom: 1px solid var(--border); padding: 8px 0; }
+        aside summary { font-weight: 700; cursor: pointer; display: flex; justify-content: space-between; }
+        aside summary .active-count { color: var(--accent); font-weight: 600; font-size: 0.85rem; }
+        aside .values { max-height: 240px; overflow-y: auto; margin-top: 6px; }
+        aside label { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; cursor: pointer; }
+        aside label span:first-child { display: inline-flex; gap: 8px; align-items: center; }
+        aside label.zero { opacity: 0.5; }
+        .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+        .clear { display: inline-block; margin-bottom: 8px; color: var(--accent); font-weight: 600; text-decoration: none; }
+        .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+        .card h3 { margin: 0; font-size: 1.02rem; line-height: 1.3; }
+        .card p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+        .card-top { display: flex; justify-content: space-between; gap: 8px; }
+        .type { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+        .featured { font-size: 0.75rem; font-weight: 700; color: var(--featured); }
+        .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 6px; }
+        .chip { background: var(--accent-soft); color: var(--text); border-radius: 999px; padding: 1px 9px; font-size: 0.8rem; }
+        .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; }
+        .pager { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 20px; }
+        .pager a, a.edit { color: var(--accent); text-decoration: none; font-weight: 600; }
+        a.edit { font-size: 0.85rem; font-weight: 500; }
+        @@media (max-width: 760px) {
+            .layout { grid-template-columns: 1fr; }
+            .searchbar { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <div>
+            <h1>Search Showdown</h1>
+            <p>One Umbraco site, one content set, three search providers.</p>
+        </div>
+        @if (Model.AvailableProviders.Contains(SearchProviderKind.Algolia))
+        {
+            <span class="usage">Algolia searches this session: <strong>@Model.AlgoliaSearches.ToString("N0")</strong></span>
+        }
+    </header>
+
+    <form method="get" action="/showdown" id="search-form">
+        <div class="searchbar">
+            <input type="search" name="q" value="@request.Q" placeholder="Search articles and products…" aria-label="Search" />
+            <button type="submit">Search</button>
+        </div>
+
+        <div class="controls">
+            <div class="providers" role="radiogroup" aria-label="Search provider">
+                @foreach (SearchProviderKind provider in Enum.GetValues<SearchProviderKind>())
+                {
+                    var available = Model.AvailableProviders.Contains(provider);
+                    var active = provider == request.Provider;
+                    <label class="@(active ? "active" : null) @(available ? null : "disabled")" title="@(available ? null : "Not configured")">
+                        <input type="radio" name="provider" value="@provider" checked="@active" disabled="@(available is false)" data-autosubmit />
+                        @ProviderLabel(provider)
+                    </label>
+                }
+            </div>
+
+            <select name="type" aria-label="Content type" data-autosubmit>
+                <option value="" selected="@(string.IsNullOrEmpty(request.Type))">Articles &amp; products</option>
+                <option value="article" selected="@(request.Type == "article")">Articles</option>
+                <option value="product" selected="@(request.Type == "product")">Products</option>
+            </select>
+
+            <select name="sort" aria-label="Sort" data-autosubmit>
+                @foreach ((string key, string label) in ShowdownSorts.Options)
+                {
+                    <option value="@key" selected="@((request.Sort ?? string.Empty) == key)">@label</option>
+                }
+            </select>
+
+            <label class="toggle">
+                <input type="checkbox" name="compare" value="true" checked="@request.Compare" data-autosubmit />
+                Compare providers
+            </label>
+        </div>
+
+        <div class="stats" aria-live="polite">
+            <span class="badge @result.Provider">@ProviderLabel(result.Provider)</span>
+            @if (result.Error is not null)
+            {
+                <span class="error">Search failed: @result.Error</span>
+            }
+            else
+            {
+                <span><span class="ms">@result.ProviderMilliseconds.ToString("0.0") ms</span> provider time</span>
+                <span>·</span>
+                <span>@result.Total.ToString("N0") results</span>
+                <span>·</span>
+                <span>@result.Facets.Count facets</span>
+            }
+        </div>
+
+        @if (Model.Comparison.Count > 0)
+        {
+            var slowest = Math.Max(1, Model.Comparison.Max(response => response.ProviderMilliseconds));
+            <div class="table-wrap">
+                <table class="compare">
+                    <thead>
+                    <tr><th>Provider</th><th>Time</th><th style="width:40%"></th><th>Results</th></tr>
+                    </thead>
+                    <tbody>
+                    @foreach (ShowdownSearchResponse response in Model.Comparison.OrderBy(response => response.ProviderMilliseconds))
+                    {
+                        <tr>
+                            <td><span class="badge @response.Provider">@ProviderLabel(response.Provider)</span></td>
+                            <td>@(response.Error is null ? $"{response.ProviderMilliseconds:0.0} ms" : "failed")</td>
+                            <td><div class="bar @response.Provider" style="width:@((response.ProviderMilliseconds / slowest * 100).ToString("0", CultureInfo.InvariantCulture))%"></div></td>
+                            <td>@(response.Error ?? response.Total.ToString("N0"))</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="layout">
+            <aside>
+                @if (request.ActiveFacetCount > 0)
+                {
+                    <a class="clear" href="?q=@Uri.EscapeDataString(request.Q ?? string.Empty)&provider=@request.Provider&type=@request.Type&sort=@request.Sort">Clear all filters</a>
+                }
+                @foreach (ShowdownFacet facet in result.Facets.Where(facet => facet.Values.Any(value => value.Count > 0 || IsSelected(facet.Field, value.Key))))
+                {
+                    var activeCount = request.SelectedFor(facet.Field).Length;
+                    <details open="@(activeCount > 0 || facet.Values.Count <= 6)">
+                        <summary>
+                            <span>@facet.Title</span>
+                            @if (activeCount > 0)
+                            {
+                                <span class="active-count">@activeCount selected</span>
+                            }
+                        </summary>
+                        <div class="values">
+                            @foreach (ShowdownFacetValue value in facet.Values)
+                            {
+                                var selected = IsSelected(facet.Field, value.Key);
+                                <label class="@(value.Count == 0 && selected is false ? "zero" : null)">
+                                    <span>
+                                        <input type="checkbox" name="@facet.Field" value="@value.Key" checked="@selected" data-autosubmit />
+                                        @value.Label
+                                    </span>
+                                    <span class="count">@value.Count.ToString("N0")</span>
+                                </label>
+                            }
+                        </div>
+                    </details>
+                }
+            </aside>
+
+            <main>
+                @if (result.Hits.Count == 0)
+                {
+                    <div class="empty">No results. Try a different search or remove a filter.</div>
+                }
+                else
+                {
+                    <div class="results">
+                        @foreach (ShowdownHit hit in result.Hits)
+                        {
+                            var isProduct = hit.ContentType == SearchShowdown.Seeding.DemoContentManager.ProductAlias;
+                            <article class="card">
+                                <div class="card-top">
+                                    <span class="type">@(isProduct ? "Product" : "Article")</span>
+                                    @if (hit.Featured)
+                                    {
+                                        <span class="featured">★ Featured</span>
+                                    }
+                                </div>
+                                <h3>@hit.Name</h3>
+                                @if (string.IsNullOrWhiteSpace(hit.Summary) is false)
+                                {
+                                    <p>@hit.Summary</p>
+                                }
+                                <div class="meta">
+                                    @if (hit.Category is not null) { <span class="chip">@hit.Category</span> }
+                                    @if (hit.Topic is not null) { <span class="chip"># @hit.Topic</span> }
+                                    @if (hit.Audience is not null) { <span class="chip">@hit.Audience</span> }
+                                    @if (isProduct)
+                                    {
+                                        if (hit.Brand is not null) { <span class="chip">@hit.Brand</span> }
+                                        if (hit.Price is not null) { <span class="chip">@hit.Price.Value.ToString("C", gbp)</span> }
+                                        if (hit.StockLevel is not null) { <span class="chip">@Stock(hit.StockLevel)</span> }
+                                    }
+                                    else
+                                    {
+                                        if (hit.Author is not null) { <span class="chip">@hit.Author</span> }
+                                        if (hit.ReadingMinutes is not null) { <span class="chip">@hit.ReadingMinutes.Value.ToString("0") min read</span> }
+                                    }
+                                    @if (hit.Rating is not null) { <span class="chip">@(new string('★', Math.Clamp(hit.Rating.Value, 0, 5)))</span> }
+                                    @if (hit.PublishDate is not null) { <span class="chip">@hit.PublishDate.Value.ToString("d MMM yyyy", gbp)</span> }
+                                </div>
+                                <a class="edit" href="/umbraco/section/content/workspace/document/edit/@hit.Key" target="_blank" rel="noopener">Open in backoffice ↗</a>
+                            </article>
+                        }
+                    </div>
+
+                    <nav class="pager" aria-label="Pagination">
+                        @if (currentPage > 1)
+                        {
+                            <a href="@PageUrl(currentPage - 1)">← Previous</a>
+                        }
+                        <span>Page @currentPage of @totalPages.ToString("N0")</span>
+                        @if (currentPage < totalPages)
+                        {
+                            <a href="@PageUrl(currentPage + 1)">Next →</a>
+                        }
+                    </nav>
+                }
+            </main>
+        </div>
+    </form>
+</div>
+<script>
+    document.querySelectorAll('[data-autosubmit]').forEach(element =>
+        element.addEventListener('change', () => document.getElementById('search-form').submit()));
+</script>
+</body>
+</html>

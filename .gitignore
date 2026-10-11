@@ -1,0 +1,9 @@
+.vs/
+bin/
+obj/
+*.user
+
+TALK-NOTES.md
+PLAN.md
+private/
+.claude/

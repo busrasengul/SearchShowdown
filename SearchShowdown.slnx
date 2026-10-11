@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SearchShowdown.AzureSearch/SearchShowdown.AzureSearch.csproj" />
+  <Project Path="SearchShowdown/SearchShowdown.csproj" />
+</Solution>
