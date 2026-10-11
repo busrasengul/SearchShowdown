@@ -22,6 +22,20 @@
 
     bool IsSelected(string field, string key) => request.SelectedFor(field).Contains(key, StringComparer.OrdinalIgnoreCase);
 
+    const int VisibleFacetValues = 6;
+
+    void FacetValue(ShowdownFacet facet, ShowdownFacetValue value)
+    {
+        var selected = IsSelected(facet.Field, value.Key);
+        <label class="@(value.Count == 0 && selected is false ? "zero" : null)">
+            <span>
+                <input type="checkbox" name="@facet.Field" value="@value.Key" checked="@selected" data-autosubmit />
+                @value.Label
+            </span>
+            <span class="count">@value.Count.ToString("N0")</span>
+        </label>
+    }
+
     string ProviderLabel(SearchProviderKind provider) => provider switch
     {
         SearchProviderKind.Azure => "Azure AI Search",
@@ -111,10 +125,20 @@
         .bar.Algolia { background: var(--algolia-mark); }
         .bar.Azure { background: var(--azure-mark); }
         .layout { display: grid; grid-template-columns: 250px 1fr; gap: 24px; }
-        aside details { border-bottom: 1px solid var(--border); padding: 8px 0; }
-        aside summary { font-weight: 700; cursor: pointer; display: flex; justify-content: space-between; }
+        aside details.facet { border-bottom: 1px solid var(--border); padding: 8px 0; }
+        aside details.facet > summary { font-weight: 700; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none; }
+        aside details.facet > summary::-webkit-details-marker { display: none; }
+        aside details.facet > summary::after { content: "▸"; color: var(--muted); font-weight: 400; margin-left: 8px; }
+        aside details.facet[open] > summary::after { content: "▾"; }
+        aside details.facet > summary > span:first-child { flex: 1; }
         aside summary .active-count { color: var(--accent); font-weight: 600; font-size: 0.85rem; }
-        aside .values { max-height: 240px; overflow-y: auto; margin-top: 6px; }
+        aside details.more > summary { cursor: pointer; list-style: none; color: var(--accent); font-size: 0.85rem; font-weight: 600; padding: 4px 0; }
+        aside details.more > summary::-webkit-details-marker { display: none; }
+        aside details.more .show-less, aside details.more[open] .show-more { display: none; }
+        aside details.more[open] .show-less { display: inline; }
+        aside details.more[open] > summary { order: 1; }
+        aside details.more[open] { display: flex; flex-direction: column; }
+        aside .values { margin-top: 6px; }
         aside label { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; cursor: pointer; }
         aside label span:first-child { display: inline-flex; gap: 8px; align-items: center; }
         aside label.zero { opacity: 0.5; }
@@ -238,7 +262,9 @@
                 @foreach (ShowdownFacet facet in result.Facets.Where(facet => facet.Values.Any(value => value.Count > 0 || IsSelected(facet.Field, value.Key))))
                 {
                     var activeCount = request.SelectedFor(facet.Field).Length;
-                    <details open="@(activeCount > 0 || facet.Values.Count <= 6)">
+                    var visibleValues = facet.Values.Take(VisibleFacetValues).ToArray();
+                    var moreValues = facet.Values.Skip(VisibleFacetValues).ToArray();
+                    <details class="facet" open>
                         <summary>
                             <span>@facet.Title</span>
                             @if (activeCount > 0)
@@ -247,16 +273,19 @@
                             }
                         </summary>
                         <div class="values">
-                            @foreach (ShowdownFacetValue value in facet.Values)
+                            @foreach (ShowdownFacetValue value in visibleValues)
                             {
-                                var selected = IsSelected(facet.Field, value.Key);
-                                <label class="@(value.Count == 0 && selected is false ? "zero" : null)">
-                                    <span>
-                                        <input type="checkbox" name="@facet.Field" value="@value.Key" checked="@selected" data-autosubmit />
-                                        @value.Label
-                                    </span>
-                                    <span class="count">@value.Count.ToString("N0")</span>
-                                </label>
+                                FacetValue(facet, value);
+                            }
+                            @if (moreValues.Length > 0)
+                            {
+                                <details class="more" open="@moreValues.Any(value => IsSelected(facet.Field, value.Key))">
+                                    <summary><span class="show-more">Show @moreValues.Length more</span><span class="show-less">Show fewer</span></summary>
+                                    @foreach (ShowdownFacetValue value in moreValues)
+                                    {
+                                        FacetValue(facet, value);
+                                    }
+                                </details>
                             }
                         </div>
                     </details>
